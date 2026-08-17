@@ -1,0 +1,58 @@
+{
+  "name": "backend",
+  "type": "module",
+  "packageManager": "npm@12.0.1",
+  "allowScripts": {
+    "bcrypt@6.0.0": true,
+    "esbuild@0.28.1": true
+  },
+  "engines": {
+    "node": "^24.0.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "knip": "knip",
+    "quality": "npm run lint && npm run type-check && npm run knip && npm run test && npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node dist/index.js",
+    "migrate": "tsx src/db/migrate.ts",
+    "migrate:down": "tsx src/db/migrate.ts down",
+    "migrate:make": "kysely migrate:make",
+    "migrate:latest": "kysely migrate:latest",
+    "migrate:rollback": "kysely migrate:rollback",
+    "migrate:list": "kysely migrate:list",
+    "db:generate-types": "kysely-codegen --out-file src/db/generated-types.ts",
+    "db:migrate-and-generate": "npm run migrate && npm run db:generate-types"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.10",
+    "@hono/zod-openapi": "^1.5.1",
+    "bcrypt": "^6.0.0",
+    "hono": "^4.12.30",
+    "kysely": "^0.29.3",
+    "minio": "^8.0.7",
+    "pg": "^8.22.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",
+    "@eslint/js": "^10.0.1",
+    "@types/bcrypt": "^6.0.0",
+    "@types/node": "^24.13.3",
+    "@types/pg": "^8.20.0",
+    "dotenv": "^17.4.2",
+    "eslint": "^10.7.0",
+    "knip": "^6.27.0",
+    "kysely-codegen": "^0.20.0",
+    "kysely-ctl": "^0.21.0",
+    "tsx": "^4.23.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.64.0",
+    "vitest": "^4.1.10"
+  }
+}

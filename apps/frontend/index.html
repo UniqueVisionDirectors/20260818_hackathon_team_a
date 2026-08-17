@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Vue、Babylon.js、Hono、PostgreSQLで構成した型安全なWeb 3Dアプリケーションテンプレート"
+    />
+    <meta name="theme-color" content="#071526" />
+    <title>Babylon Stack</title>
+  </head>
+  <body>
+    <div id="app">
+      <div id="app-loader">読み込み中...</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+    <script>
+      window.addEventListener('DOMContentLoaded', () => {
+        setTimeout(() => {
+          const loader = document.getElementById('app-loader');
+          if (loader) loader.remove();
+        }, 100);
+      });
+    </script>
+  </body>
+</html>

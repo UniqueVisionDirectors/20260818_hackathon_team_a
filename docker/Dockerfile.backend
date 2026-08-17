@@ -1,0 +1,19 @@
+# Development environment for backend
+FROM node:24.18.0-bookworm-slim
+
+RUN npm install --global npm@12.0.1
+
+# Set working directory
+WORKDIR /workspace/apps/backend
+
+# Copy package files for dependency installation
+COPY apps/backend/package*.json ./
+
+# Install dependencies (cached layer)
+RUN npm ci --prefer-offline --no-audit
+
+# Expose port for development server
+EXPOSE 3000
+
+# Default command
+CMD ["npm", "run", "dev"]
