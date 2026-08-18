@@ -35,6 +35,42 @@
           START
         </button>
       </div>
+
+      <div
+        v-if="status === 'ready'"
+        class="babylon-viewer__hud"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span>SCORE {{ gameState.score }}</span>
+        <span>MISS {{ gameState.misses }} / {{ gameState.maxMisses }}</span>
+        <span
+          v-if="gameState.phase === 'settling'"
+          class="babylon-viewer__settling"
+        >
+          安定を判定中…
+        </span>
+      </div>
+
+      <div
+        v-if="gameState.phase === 'game-over'"
+        class="babylon-viewer__game-over"
+        role="alert"
+      >
+        <p class="babylon-viewer__game-over-title">
+          GAME OVER
+        </p>
+        <p class="babylon-viewer__final-score">
+          FINAL SCORE {{ gameState.score }}
+        </p>
+        <button
+          class="babylon-viewer__start-button"
+          type="button"
+          @click="handleRetryGame"
+        >
+          RETRY
+        </button>
+      </div>
     </div>
 
     <figcaption class="babylon-viewer__caption">
@@ -51,7 +87,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue'
 import type { BabylonRenderer } from '@/renderer/BabylonRenderer'
-import type { RendererInfo } from '@/renderer/types'
+import { createInitialGameState } from '@/renderer/gameLogic'
+import type { GameState, RendererInfo } from '@/renderer/types'
 
 type ViewerStatus = 'idle' | 'initializing' | 'ready' | 'error'
 
@@ -64,6 +101,7 @@ const canvasRef = shallowRef<HTMLCanvasElement | null>(null)
 const rendererRef = shallowRef<BabylonRenderer | null>(null)
 const status = ref<ViewerStatus>('idle')
 const gameStarted = ref(false)
+const gameState = ref<GameState>(createInitialGameState())
 const rendererInfo = shallowRef<RendererInfo | null>(null)
 let resizeObserver: ResizeObserver | null = null
 let unmounted = false
@@ -117,6 +155,24 @@ const handleStartGame = async (): Promise<void> => {
   }
 }
 
+const handleRetryGame = async (): Promise<void> => {
+  const renderer = rendererRef.value
+
+  if (!renderer) {
+    return
+  }
+
+  try {
+    renderer.restartGame()
+    await nextTick()
+    canvasRef.value?.focus()
+  } catch (cause) {
+    const error = cause instanceof Error ? cause : new Error('Unknown game retry error')
+    status.value = 'error'
+    emit('error', error)
+  }
+}
+
 onMounted(async () => {
   const canvas = canvasRef.value
 
@@ -133,7 +189,12 @@ onMounted(async () => {
       return
     }
 
-    const renderer = new BabylonRenderer(canvas, { backend: requestedBackend })
+    const renderer = new BabylonRenderer(canvas, {
+      backend: requestedBackend,
+      onGameStateChange: (state) => {
+        gameState.value = state
+      },
+    })
     rendererRef.value = renderer
     resizeObserver = new ResizeObserver(() => { renderer.resize(); })
     resizeObserver.observe(canvas)
@@ -224,6 +285,69 @@ onUnmounted(() => {
   display: grid;
   place-items: center;
   background: rgba(4, 13, 29, 0.5);
+}
+
+.babylon-viewer__hud {
+  position: absolute;
+  z-index: 1;
+  top: 1rem;
+  right: 1rem;
+  left: 1rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  pointer-events: none;
+  color: #eef9ff;
+  font-size: clamp(0.9rem, 2vw, 1.15rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-shadow: 0 2px 8px #020914, 0 0 12px rgba(82, 213, 255, 0.45);
+}
+
+.babylon-viewer__settling {
+  position: absolute;
+  top: 2.2rem;
+  left: 50%;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid rgba(126, 229, 255, 0.35);
+  border-radius: 999px;
+  color: #bfefff;
+  background: rgba(4, 13, 29, 0.72);
+  font-size: 0.72rem;
+  transform: translateX(-50%);
+}
+
+.babylon-viewer__game-over {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 1rem;
+  padding: 2rem;
+  color: #eef9ff;
+  background: rgba(4, 13, 29, 0.78);
+  text-align: center;
+}
+
+.babylon-viewer__game-over-title,
+.babylon-viewer__final-score {
+  margin: 0;
+}
+
+.babylon-viewer__game-over-title {
+  color: #ff7585;
+  font-size: clamp(2rem, 6vw, 3.75rem);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-shadow: 0 0 1.5rem rgba(255, 72, 94, 0.42);
+}
+
+.babylon-viewer__final-score {
+  font-size: clamp(1rem, 3vw, 1.5rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
 }
 
 .babylon-viewer__start-button {

@@ -3,18 +3,21 @@ import type { AssetContainer } from '@babylonjs/core/assetContainer'
 import type { Scene } from '@babylonjs/core/scene'
 import { createGameScene } from './createGameScene'
 import { createEngine } from './createEngine'
-import type { RendererBackend, RendererInfo } from './types'
+import type { GameState, RendererBackend, RendererInfo } from './types'
 
 export interface BabylonRendererOptions {
   backend?: RendererBackend
+  onGameStateChange?: (state: GameState) => void
 }
 
 export class BabylonRenderer {
   private readonly canvas: HTMLCanvasElement
   private readonly requestedBackend: RendererBackend
+  private readonly onGameStateChange: ((state: GameState) => void) | undefined
   private engine: AbstractEngine | null = null
   private scene: Scene | null = null
   private startGameAction: (() => void) | null = null
+  private restartGameAction: (() => void) | null = null
   private disposed = false
   private rendering = false
 
@@ -25,6 +28,7 @@ export class BabylonRenderer {
   constructor(canvas: HTMLCanvasElement, options: BabylonRendererOptions = {}) {
     this.canvas = canvas
     this.requestedBackend = options.backend ?? 'webgl'
+    this.onGameStateChange = options.onGameStateChange
   }
 
   // disposed をプロパティ直読でなくメソッド経由で参照する: TS の narrowing は await を跨いで
@@ -50,7 +54,9 @@ export class BabylonRenderer {
     this.engine = result.engine
 
     try {
-      const gameScene = await createGameScene(result.engine, this.canvas)
+      const gameScene = await createGameScene(result.engine, this.canvas, {
+        onGameStateChange: this.onGameStateChange,
+      })
 
       if (this.isDisposed()) {
         gameScene.scene.dispose()
@@ -59,6 +65,7 @@ export class BabylonRenderer {
 
       this.scene = gameScene.scene
       this.startGameAction = gameScene.startGame
+      this.restartGameAction = gameScene.restartGame
       this.startRendering()
     } catch (error) {
       this.engine.dispose()
@@ -83,6 +90,14 @@ export class BabylonRenderer {
     }
 
     this.startGameAction()
+  }
+
+  restartGame(): void {
+    if (!this.restartGameAction) {
+      throw new Error('Initialize the renderer before restarting the game.')
+    }
+
+    this.restartGameAction()
   }
 
   setSuspended(suspended: boolean): void {
@@ -116,6 +131,7 @@ export class BabylonRenderer {
     this.scene?.dispose()
     this.engine?.dispose()
     this.startGameAction = null
+    this.restartGameAction = null
     this.scene = null
     this.engine = null
   }

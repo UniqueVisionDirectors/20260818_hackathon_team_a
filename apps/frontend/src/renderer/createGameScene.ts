@@ -1,7 +1,6 @@
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
 import type { AbstractEngine } from '@babylonjs/core/Engines/abstractEngine'
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
-import { PointLight } from '@babylonjs/core/Lights/pointLight'
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
@@ -14,12 +13,20 @@ import { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin'
 import { Scene } from '@babylonjs/core/scene'
 import HavokPhysics from '@babylonjs/havok'
 import {
+  calculateCameraTargetY,
+  calculateSpawnHeight,
+  createInitialGameState,
+  hasStabilized,
+  resolveObjectMiss,
+  resolveObjectStable,
   selectRandomShape,
-  SPAWN_HEIGHT,
+  updateStabilityDuration,
   updateGameTransform,
   type GameInput,
   type GameShape,
+  type ObjectScoreState,
 } from './gameLogic'
+import type { GameState } from './types'
 
 const OBJECT_MASS = 1
 const OBJECT_FRICTION = 0.8
@@ -27,6 +34,11 @@ const OBJECT_RESTITUTION = 0.02
 const GROUND_SIZE = 9
 const GROUND_HALF_SIZE = GROUND_SIZE / 2
 const GROUND_GRID_STEP = 1
+const FALL_THRESHOLD_Y = -5
+const CAMERA_INITIAL_ALPHA = -Math.PI / 2
+const CAMERA_INITIAL_BETA = Math.PI / 2.55
+const CAMERA_INITIAL_RADIUS = 8.5
+const CAMERA_FOLLOW_SPEED = 3
 
 const inputKeyByCode: Readonly<Partial<Record<string, keyof GameInput>>> = {
   KeyW: 'moveForward',
@@ -89,18 +101,18 @@ const createObjectMaterial = (shape: GameShape, scene: Scene): StandardMaterial 
 
   switch (shape) {
     case 'box':
-      material.diffuseColor = new Color3(0.08, 0.62, 1)
+      material.diffuseColor = new Color3(0.04, 0.12, 0.68)
       break
     case 'sphere':
-      material.diffuseColor = new Color3(1, 0.28, 0.42)
+      material.diffuseColor = new Color3(0.72, 0.035, 0.045)
       break
     case 'cylinder':
-      material.diffuseColor = new Color3(0.55, 0.9, 0.2)
+      material.diffuseColor = new Color3(0.035, 0.48, 0.1)
       break
   }
 
-  material.emissiveColor = material.diffuseColor.scale(0.16)
-  material.specularColor = new Color3(0.75, 0.85, 1)
+  material.emissiveColor = material.diffuseColor.scale(0.2)
+  material.specularColor = new Color3(0.35, 0.4, 0.48)
   return material
 }
 
@@ -133,11 +145,24 @@ const createGroundGrid = (scene: Scene): void => {
 export interface GameSceneResult {
   scene: Scene
   startGame: () => void
+  restartGame: () => void
+}
+
+export interface GameSceneOptions {
+  onGameStateChange?: (state: GameState) => void
+}
+
+interface GameObjectRecord extends ObjectScoreState {
+  mesh: Mesh
+  shape: GameShape
+  aggregate: PhysicsAggregate | null
+  stableDuration: number
 }
 
 export const createGameScene = async (
   engine: AbstractEngine,
   canvas: HTMLCanvasElement,
+  options: GameSceneOptions = {},
 ): Promise<GameSceneResult> => {
   const scene = new Scene(engine)
 
@@ -146,9 +171,9 @@ export const createGameScene = async (
 
     const camera = new ArcRotateCamera(
       'main-camera',
-      -Math.PI / 2,
-      Math.PI / 2.55,
-      8.5,
+      CAMERA_INITIAL_ALPHA,
+      CAMERA_INITIAL_BETA,
+      CAMERA_INITIAL_RADIUS,
       new Vector3(0, 1.5, 0),
       scene,
     )
@@ -162,12 +187,9 @@ export const createGameScene = async (
       new Vector3(0, 1, 0),
       scene,
     )
-    ambientLight.intensity = 0.75
-    ambientLight.groundColor = new Color3(0.08, 0.12, 0.2)
-
-    const accentLight = new PointLight('accent-light', new Vector3(-3, 6, -2), scene)
-    accentLight.diffuse = new Color3(0.42, 0.86, 1)
-    accentLight.intensity = 55
+    ambientLight.intensity = 1.05
+    ambientLight.diffuse = new Color3(1, 1, 1)
+    ambientLight.groundColor = new Color3(0.38, 0.4, 0.46)
 
     const havokInstance = await HavokPhysics()
     scene.enablePhysics(new Vector3(0, -9.81, 0), new HavokPlugin(true, havokInstance))
@@ -194,19 +216,86 @@ export const createGameScene = async (
     )
 
     const input = createEmptyInput()
-    let activeMesh: Mesh | null = null
-    let activeShape: GameShape | null = null
-    let started = false
-    let dropped = false
+    const gameObjects = new Set<GameObjectRecord>()
+    let activeObject: GameObjectRecord | null = null
+    let gameState = createInitialGameState()
 
-    const dropActiveObject = (): void => {
-      if (!activeMesh || !activeShape || dropped) {
+    const publishGameState = (): void => {
+      options.onGameStateChange?.({ ...gameState })
+    }
+
+    const updateGameState = (nextState: GameState): void => {
+      gameState = nextState
+      publishGameState()
+    }
+
+    const isGameOver = (): boolean => gameState.phase === 'game-over'
+
+    const getHighestScoredPoint = (): number | null => {
+      let highestPoint: number | null = null
+
+      for (const gameObject of gameObjects) {
+        if (!gameObject.scored || gameObject.missed) {
+          continue
+        }
+
+        gameObject.mesh.computeWorldMatrix(true)
+        const objectTop = gameObject.mesh.getBoundingInfo().boundingBox.maximumWorld.y
+        highestPoint = highestPoint === null ? objectTop : Math.max(highestPoint, objectTop)
+      }
+
+      return highestPoint
+    }
+
+    const disposeGameObject = (gameObject: GameObjectRecord): void => {
+      gameObject.aggregate?.dispose()
+      gameObject.mesh.material?.dispose()
+      gameObject.mesh.dispose()
+      gameObjects.delete(gameObject)
+    }
+
+    const disposeAllGameObjects = (): void => {
+      for (const gameObject of [...gameObjects]) {
+        disposeGameObject(gameObject)
+      }
+
+      activeObject = null
+    }
+
+    const spawnNextObject = (): void => {
+      if (gameState.phase === 'game-over') {
         return
       }
 
-      new PhysicsAggregate(
-        activeMesh,
-        getPhysicsShapeType(activeShape),
+      const shape = selectRandomShape(Math.random())
+      const mesh = createObjectMesh(shape, scene)
+      mesh.position.y = calculateSpawnHeight(getHighestScoredPoint())
+      mesh.material = createObjectMaterial(shape, scene)
+
+      activeObject = {
+        mesh,
+        shape,
+        aggregate: null,
+        stableDuration: 0,
+        scored: false,
+        missed: false,
+      }
+      gameObjects.add(activeObject)
+      updateGameState({ ...gameState, phase: 'positioning' })
+    }
+
+    const dropActiveObject = (): void => {
+      if (
+        gameState.phase !== 'positioning'
+        || !activeObject
+        || activeObject.aggregate
+      ) {
+        return
+      }
+
+      activeObject.aggregate = new PhysicsAggregate(
+        activeObject.mesh,
+        getPhysicsShapeType(activeObject.shape),
         {
           mass: OBJECT_MASS,
           friction: OBJECT_FRICTION,
@@ -214,26 +303,75 @@ export const createGameScene = async (
         },
         scene,
       )
-      dropped = true
+      activeObject.stableDuration = 0
       resetInput(input)
+      updateGameState({ ...gameState, phase: 'settling' })
+    }
+
+    const resolveMissForObject = (gameObject: GameObjectRecord): boolean => {
+      const isCurrentObject = gameObject === activeObject
+      const result = resolveObjectMiss(gameState, gameObject, isCurrentObject)
+      gameObject.scored = result.objectState.scored
+      gameObject.missed = result.objectState.missed
+
+      if (isCurrentObject) {
+        activeObject = null
+      }
+
+      disposeGameObject(gameObject)
+      updateGameState(result.gameState)
+      return isCurrentObject
+    }
+
+    const resolveStableActiveObject = (): void => {
+      if (!activeObject) {
+        return
+      }
+
+      const result = resolveObjectStable(gameState, activeObject)
+      activeObject.scored = result.objectState.scored
+      activeObject.missed = result.objectState.missed
+      activeObject = null
+      updateGameState(result.gameState)
+      spawnNextObject()
+    }
+
+    const updateCameraTarget = (deltaSeconds: number): void => {
+      const desiredTargetY = calculateCameraTargetY(getHighestScoredPoint())
+      const followAmount = 1 - Math.exp(-CAMERA_FOLLOW_SPEED * deltaSeconds)
+      const nextTargetY = camera.target.y
+        + (desiredTargetY - camera.target.y) * followAmount
+      camera.setTarget(new Vector3(camera.target.x, nextTargetY, camera.target.z))
+    }
+
+    const resetCamera = (): void => {
+      camera.alpha = CAMERA_INITIAL_ALPHA
+      camera.beta = CAMERA_INITIAL_BETA
+      camera.radius = CAMERA_INITIAL_RADIUS
+      camera.inertialAlphaOffset = 0
+      camera.inertialBetaOffset = 0
+      camera.inertialRadiusOffset = 0
+      camera.inertialPanningX = 0
+      camera.inertialPanningY = 0
+      camera.setTarget(new Vector3(0, 1.5, 0))
     }
 
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (!started) {
+      if (gameState.phase === 'waiting' || gameState.phase === 'game-over') {
         return
       }
 
       if (event.code === 'Space') {
         event.preventDefault()
 
-        if (!dropped && !event.repeat) {
+        if (gameState.phase === 'positioning' && !event.repeat) {
           dropActiveObject()
         }
 
         return
       }
 
-      if (dropped) {
+      if (gameState.phase !== 'positioning') {
         return
       }
 
@@ -263,44 +401,94 @@ export const createGameScene = async (
     canvas.addEventListener('blur', handleBlur)
 
     scene.onBeforeRenderObservable.add(() => {
-      if (!activeMesh || dropped) {
+      if (gameState.phase === 'game-over') {
         return
       }
 
-      const nextTransform = updateGameTransform(
-        {
-          x: activeMesh.position.x,
-          z: activeMesh.position.z,
-          rotationY: activeMesh.rotation.y,
-        },
-        input,
-        engine.getDeltaTime() / 1000,
-        false,
-      )
+      const deltaSeconds = Math.min(engine.getDeltaTime() / 1000, 0.1)
+      let currentObjectMissed = false
 
-      activeMesh.position.x = nextTransform.x
-      activeMesh.position.z = nextTransform.z
-      activeMesh.rotation.y = nextTransform.rotationY
+      for (const gameObject of [...gameObjects]) {
+        if (
+          gameObject.aggregate
+          && !gameObject.missed
+          && gameObject.mesh.position.y < FALL_THRESHOLD_Y
+        ) {
+          currentObjectMissed = resolveMissForObject(gameObject) || currentObjectMissed
+
+          if (isGameOver()) {
+            resetInput(input)
+            return
+          }
+        }
+      }
+
+      if (currentObjectMissed) {
+        spawnNextObject()
+      }
+
+      if (
+        gameState.phase === 'positioning'
+        && activeObject
+        && !activeObject.aggregate
+      ) {
+        const nextTransform = updateGameTransform(
+          {
+            x: activeObject.mesh.position.x,
+            z: activeObject.mesh.position.z,
+            rotationY: activeObject.mesh.rotation.y,
+          },
+          input,
+          deltaSeconds,
+          false,
+        )
+
+        activeObject.mesh.position.x = nextTransform.x
+        activeObject.mesh.position.z = nextTransform.z
+        activeObject.mesh.rotation.y = nextTransform.rotationY
+      } else if (
+        gameState.phase === 'settling'
+        && activeObject?.aggregate
+      ) {
+        activeObject.stableDuration = updateStabilityDuration(
+          activeObject.stableDuration,
+          activeObject.aggregate.body.getLinearVelocity().length(),
+          activeObject.aggregate.body.getAngularVelocity().length(),
+          deltaSeconds,
+        )
+
+        if (hasStabilized(activeObject.stableDuration)) {
+          resolveStableActiveObject()
+        }
+      }
+
+      updateCameraTarget(deltaSeconds)
     })
 
     scene.onDisposeObservable.add(() => {
       canvas.removeEventListener('keydown', handleKeyDown)
       canvas.removeEventListener('keyup', handleKeyUp)
       canvas.removeEventListener('blur', handleBlur)
+      gameObjects.clear()
     })
+
+    publishGameState()
 
     return {
       scene,
       startGame: () => {
-        if (started) {
+        if (gameState.phase !== 'waiting') {
           return
         }
 
-        started = true
-        activeShape = selectRandomShape(Math.random())
-        activeMesh = createObjectMesh(activeShape, scene)
-        activeMesh.position.y = SPAWN_HEIGHT
-        activeMesh.material = createObjectMaterial(activeShape, scene)
+        spawnNextObject()
+      },
+      restartGame: () => {
+        disposeAllGameObjects()
+        resetInput(input)
+        resetCamera()
+        gameState = createInitialGameState()
+        spawnNextObject()
       },
     }
   } catch (error) {
