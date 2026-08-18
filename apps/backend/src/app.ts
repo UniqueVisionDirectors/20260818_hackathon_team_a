@@ -1,7 +1,8 @@
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
-import { storeUserApi, storeItemApi, storeHealthApi, storeAuthApi, storeImageApi } from './apis/index.js'
+import { storeUserApi, storeItemApi, storeHealthApi, storeAuthApi, storeImageApi, storeRankingApi } from './apis/index.js'
+
 
 const basePath = process.env.BASE_PATH ?? ''
 
@@ -24,6 +25,8 @@ storeHealthApi(apiApp)
 storeUserApi(apiApp)
 storeItemApi(apiApp)
 storeAuthApi(apiApp)
+storeRankingApi(apiApp)
+
 storeImageApi(apiApp)
 
 
