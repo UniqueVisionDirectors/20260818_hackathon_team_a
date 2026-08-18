@@ -1,7 +1,7 @@
 import type { AbstractEngine } from '@babylonjs/core/Engines/abstractEngine'
 import type { AssetContainer } from '@babylonjs/core/assetContainer'
 import type { Scene } from '@babylonjs/core/scene'
-import { createDemoScene } from './createDemoScene'
+import { createGameScene } from './createGameScene'
 import { createEngine } from './createEngine'
 import type { RendererBackend, RendererInfo } from './types'
 
@@ -14,6 +14,7 @@ export class BabylonRenderer {
   private readonly requestedBackend: RendererBackend
   private engine: AbstractEngine | null = null
   private scene: Scene | null = null
+  private startGameAction: (() => void) | null = null
   private disposed = false
   private rendering = false
 
@@ -49,7 +50,15 @@ export class BabylonRenderer {
     this.engine = result.engine
 
     try {
-      this.scene = createDemoScene(result.engine, this.canvas)
+      const gameScene = await createGameScene(result.engine, this.canvas)
+
+      if (this.isDisposed()) {
+        gameScene.scene.dispose()
+        throw new Error('Renderer was disposed during scene initialization.')
+      }
+
+      this.scene = gameScene.scene
+      this.startGameAction = gameScene.startGame
       this.startRendering()
     } catch (error) {
       this.engine.dispose()
@@ -66,6 +75,14 @@ export class BabylonRenderer {
 
   resize(): void {
     this.engine?.resize()
+  }
+
+  startGame(): void {
+    if (!this.startGameAction) {
+      throw new Error('Initialize the renderer before starting the game.')
+    }
+
+    this.startGameAction()
   }
 
   setSuspended(suspended: boolean): void {
@@ -98,6 +115,7 @@ export class BabylonRenderer {
     this.stopRendering()
     this.scene?.dispose()
     this.engine?.dispose()
+    this.startGameAction = null
     this.scene = null
     this.engine = null
   }
