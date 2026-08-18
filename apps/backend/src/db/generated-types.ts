@@ -31,6 +31,13 @@ export interface Items {
   updated_at: Generated<Timestamp>;
 }
 
+export interface Scoreboards {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  nickname: string;
+  score: Generated<number>;
+}
+
 export interface Users {
   active: Generated<boolean>;
   created_at: Generated<Timestamp>;
@@ -44,5 +51,6 @@ export interface Users {
 export interface DB {
   images: Images;
   items: Items;
+  scoreboards: Scoreboards;
   users: Users;
 }

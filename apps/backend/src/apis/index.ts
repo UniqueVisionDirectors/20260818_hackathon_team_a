@@ -3,3 +3,4 @@ export { storeItemApi } from './items.js';
 export { storeHealthApi } from './health.js';
 export { storeAuthApi } from './auth.js';
 export { storeImageApi } from './images.js';
+export { storeRankingApi } from './rankings.js';
