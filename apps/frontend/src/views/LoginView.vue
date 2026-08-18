@@ -64,6 +64,24 @@
           {{ loading ? 'ログイン中…' : 'ログイン' }}
         </button>
       </form>
+
+      <div class="auth-alternative">
+        <div
+          class="auth-divider"
+          aria-hidden="true"
+        >
+          <span>または</span>
+        </div>
+        <button
+          class="button button--guest"
+          type="button"
+          :disabled="loading"
+          @click="handleGuestLogin"
+        >
+          ゲストとしてプレー
+        </button>
+        <p>アカウント登録やバックエンド接続なしでゲームを開始できます。</p>
+      </div>
     </section>
 
     <aside
@@ -125,6 +143,22 @@ const handleSubmit = async (): Promise<void> => {
       ?? 'ログインに失敗しました。メールアドレスとパスワードを確認してください。'
   } catch {
     error.value = 'ログインに失敗しました。メールアドレスとパスワードを確認してください。'
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleGuestLogin = async (): Promise<void> => {
+  if (loading.value) {
+    return
+  }
+
+  loading.value = true
+  error.value = ''
+
+  try {
+    authStore.continueAsGuest()
+    await router.push('/dashboard')
   } finally {
     loading.value = false
   }

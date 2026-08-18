@@ -17,13 +17,15 @@
         </div>
 
         <div class="account">
-          <span class="account__email">{{ authStore.currentUser?.email }}</span>
+          <span class="account__email">
+            {{ authStore.isGuest ? 'ゲストプレー中' : authStore.currentUser?.email }}
+          </span>
           <button
             class="button button--ghost"
             type="button"
             @click="handleLogout"
           >
-            ログアウト
+            {{ authStore.isGuest ? 'ゲスト終了' : 'ログアウト' }}
           </button>
         </div>
       </div>

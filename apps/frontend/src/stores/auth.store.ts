@@ -2,7 +2,10 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { LoginCredentials, AuthState } from '@/types';
 import * as authService from '@/services/auth.service';
-import { getStoredToken, toErrorMessage } from '@/services/api';
+import { getStoredToken, removeStoredToken, toErrorMessage } from '@/services/api';
+
+const GUEST_SESSION_KEY = 'auth:isGuest';
+const GUEST_USER = { id: 'guest', name: 'ゲスト', email: '' };
 
 /**
  * LocalStorage から復元した値がユーザー情報の形をしているか検証する
@@ -28,6 +31,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   // State
   const isLoggedIn = ref<boolean>(false);
+  const isGuest = ref<boolean>(false);
   const currentUser = ref<{ id: string; name: string; email: string } | null>(null);
   const loading = ref<boolean>(false);
   const error = ref<string | null>(null);
@@ -36,6 +40,7 @@ export const useAuthStore = defineStore('auth', () => {
   // Getters
   const authState = computed<AuthState>(() => ({
     isLoggedIn: isLoggedIn.value,
+    isGuest: isGuest.value,
     currentUser: currentUser.value ?? undefined,
     loading: loading.value,
     error: error.value ? { message: error.value } : null
@@ -59,8 +64,10 @@ export const useAuthStore = defineStore('auth', () => {
       });
 
       isLoggedIn.value = true;
+      isGuest.value = false;
       currentUser.value = response.user;
       isInitialized.value = true;
+      sessionStorage.removeItem(GUEST_SESSION_KEY);
 
       // LocalStorageにユーザー情報を保存（トークンはAPIクライアントで管理）
       localStorage.setItem('auth:isLoggedIn', 'true');
@@ -76,16 +83,35 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
+   * バックエンド認証を使わない、現在のタブ限定のゲストセッションを開始する
+   */
+  function continueAsGuest(): void {
+    removeStoredToken();
+    localStorage.removeItem('auth:isLoggedIn');
+    localStorage.removeItem('auth:currentUser');
+    sessionStorage.setItem(GUEST_SESSION_KEY, 'true');
+
+    isLoggedIn.value = false;
+    isGuest.value = true;
+    currentUser.value = GUEST_USER;
+    error.value = null;
+    isInitialized.value = true;
+  }
+
+  /**
    * ログアウト処理
    */
   async function logout(): Promise<void> {
     try {
-      // APIを使用したログアウト処理
-      await authService.logout();
+      if (!isGuest.value) {
+        // APIを使用したログアウト処理
+        await authService.logout();
+      }
     } catch (error) {
       console.error('ログアウトエラー:', error);
     } finally {
       isLoggedIn.value = false;
+      isGuest.value = false;
       currentUser.value = null;
       error.value = null;
       isInitialized.value = true; // ログアウト後は初期化済み状態にする
@@ -93,6 +119,8 @@ export const useAuthStore = defineStore('auth', () => {
       // LocalStorageから削除
       localStorage.removeItem('auth:isLoggedIn');
       localStorage.removeItem('auth:currentUser');
+      sessionStorage.removeItem(GUEST_SESSION_KEY);
+      removeStoredToken();
     }
   }
 
@@ -101,6 +129,16 @@ export const useAuthStore = defineStore('auth', () => {
    */
   async function restoreAuthState(): Promise<void> {
     try {
+      if (sessionStorage.getItem(GUEST_SESSION_KEY) === 'true') {
+        isLoggedIn.value = false;
+        isGuest.value = true;
+        currentUser.value = GUEST_USER;
+        removeStoredToken();
+        localStorage.removeItem('auth:isLoggedIn');
+        localStorage.removeItem('auth:currentUser');
+        return;
+      }
+
       const token = getStoredToken();
       const storedCurrentUser = localStorage.getItem('auth:currentUser');
 
@@ -110,6 +148,7 @@ export const useAuthStore = defineStore('auth', () => {
           const userData: unknown = JSON.parse(storedCurrentUser);
           if (isStoredUser(userData)) {
             isLoggedIn.value = true;
+            isGuest.value = false;
             currentUser.value = userData;
           }
 
@@ -119,11 +158,13 @@ export const useAuthStore = defineStore('auth', () => {
           if (session) {
             // セッション有効 - ユーザー情報を最新に更新
             isLoggedIn.value = true;
+            isGuest.value = false;
             currentUser.value = session.user;
             localStorage.setItem('auth:currentUser', JSON.stringify(session.user));
           } else {
             // セッションが無効な場合は静かにクリア
             isLoggedIn.value = false;
+            isGuest.value = false;
             currentUser.value = null;
             localStorage.removeItem('auth:isLoggedIn');
             localStorage.removeItem('auth:currentUser');
@@ -131,6 +172,7 @@ export const useAuthStore = defineStore('auth', () => {
         } catch {
           // セッション確認でエラーが発生した場合も静かにクリア
           isLoggedIn.value = false;
+          isGuest.value = false;
           currentUser.value = null;
           localStorage.removeItem('auth:isLoggedIn');
           localStorage.removeItem('auth:currentUser');
@@ -147,6 +189,7 @@ export const useAuthStore = defineStore('auth', () => {
    */
   function handleAuthError(): void {
     isLoggedIn.value = false;
+    isGuest.value = false;
     currentUser.value = null;
     error.value = null;
     isInitialized.value = true;
@@ -154,6 +197,7 @@ export const useAuthStore = defineStore('auth', () => {
     // LocalStorageから削除
     localStorage.removeItem('auth:isLoggedIn');
     localStorage.removeItem('auth:currentUser');
+    sessionStorage.removeItem(GUEST_SESSION_KEY);
 
     // ナビゲーションはルーターガードで処理される
   }
@@ -168,6 +212,7 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     // State
     isLoggedIn,
+    isGuest,
     currentUser,
     loading,
     error,
@@ -178,6 +223,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     // Actions
     login,
+    continueAsGuest,
     logout,
     restoreAuthState,
     handleAuthError,

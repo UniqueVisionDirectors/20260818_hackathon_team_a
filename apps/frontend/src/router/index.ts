@@ -64,15 +64,15 @@ router.beforeEach(async (to) => {
     await authStore.restoreAuthState();
   }
 
-  const isLoggedIn = authStore.isLoggedIn;
+  const hasGameAccess = authStore.isLoggedIn || authStore.isGuest;
 
   // 認証が必要なルートのガード
-  if (to.meta.requiresAuth && !isLoggedIn) {
+  if (to.meta.requiresAuth && !hasGameAccess) {
     return '/login';
   }
 
   // ゲスト専用ルートのガード
-  if (to.meta.requiresGuest && isLoggedIn) {
+  if (to.meta.requiresGuest && hasGameAccess) {
     return '/dashboard';
   }
 
