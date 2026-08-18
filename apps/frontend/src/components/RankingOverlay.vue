@@ -472,6 +472,7 @@ onUnmounted(() => {
 
 .ranking-overlay__button--retry {
   width: min(12rem, 100%);
+  margin-top: 0.75rem;
   justify-self: center;
 }
 
