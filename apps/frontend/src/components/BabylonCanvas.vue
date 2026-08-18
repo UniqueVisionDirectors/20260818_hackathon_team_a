@@ -4,7 +4,9 @@
       <canvas
         ref="canvasRef"
         class="babylon-viewer__canvas"
-        tabindex="0"
+        :tabindex="gameState.phase === 'game-over' ? -1 : 0"
+        :inert="gameState.phase === 'game-over'"
+        :aria-hidden="gameState.phase === 'game-over' ? 'true' : undefined"
         aria-label="3D積み木ゲーム。W、A、S、Dで移動、QとEで回転、SpaceでDROPします。"
       >
         このブラウザは Canvas に対応していません。
@@ -52,25 +54,11 @@
         </span>
       </div>
 
-      <div
+      <RankingOverlay
         v-if="gameState.phase === 'game-over'"
-        class="babylon-viewer__game-over"
-        role="alert"
-      >
-        <p class="babylon-viewer__game-over-title">
-          GAME OVER
-        </p>
-        <p class="babylon-viewer__final-score">
-          FINAL SCORE {{ gameState.score }}
-        </p>
-        <button
-          class="babylon-viewer__start-button"
-          type="button"
-          @click="handleRetryGame"
-        >
-          RETRY
-        </button>
-      </div>
+        :final-score="gameState.score"
+        @retry="handleRetryGame"
+      />
     </div>
 
     <figcaption class="babylon-viewer__caption">
@@ -86,6 +74,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue'
+import RankingOverlay from '@/components/RankingOverlay.vue'
 import type { BabylonRenderer } from '@/renderer/BabylonRenderer'
 import { createInitialGameState } from '@/renderer/gameLogic'
 import type { GameState, RendererInfo } from '@/renderer/types'
@@ -315,39 +304,6 @@ onUnmounted(() => {
   background: rgba(4, 13, 29, 0.72);
   font-size: 0.72rem;
   transform: translateX(-50%);
-}
-
-.babylon-viewer__game-over {
-  position: absolute;
-  z-index: 2;
-  inset: 0;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 1rem;
-  padding: 2rem;
-  color: #eef9ff;
-  background: rgba(4, 13, 29, 0.78);
-  text-align: center;
-}
-
-.babylon-viewer__game-over-title,
-.babylon-viewer__final-score {
-  margin: 0;
-}
-
-.babylon-viewer__game-over-title {
-  color: #ff7585;
-  font-size: clamp(2rem, 6vw, 3.75rem);
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  text-shadow: 0 0 1.5rem rgba(255, 72, 94, 0.42);
-}
-
-.babylon-viewer__final-score {
-  font-size: clamp(1rem, 3vw, 1.5rem);
-  font-weight: 800;
-  letter-spacing: 0.08em;
 }
 
 .babylon-viewer__start-button {

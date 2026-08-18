@@ -31,7 +31,7 @@ import type { GameState } from './types'
 const OBJECT_MASS = 1
 const OBJECT_FRICTION = 0.8
 const OBJECT_RESTITUTION = 0.02
-const GROUND_SIZE = 9
+const GROUND_SIZE = 4.5
 const GROUND_HALF_SIZE = GROUND_SIZE / 2
 const GROUND_GRID_STEP = 1
 const FALL_THRESHOLD_Y = -5
