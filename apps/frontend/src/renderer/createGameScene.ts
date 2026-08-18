@@ -24,6 +24,9 @@ import {
 const OBJECT_MASS = 1
 const OBJECT_FRICTION = 0.8
 const OBJECT_RESTITUTION = 0.02
+const GROUND_SIZE = 9
+const GROUND_HALF_SIZE = GROUND_SIZE / 2
+const GROUND_GRID_STEP = 1
 
 const inputKeyByCode: Readonly<Partial<Record<string, keyof GameInput>>> = {
   KeyW: 'moveForward',
@@ -86,18 +89,45 @@ const createObjectMaterial = (shape: GameShape, scene: Scene): StandardMaterial 
 
   switch (shape) {
     case 'box':
-      material.diffuseColor = new Color3(0.12, 0.52, 0.86)
+      material.diffuseColor = new Color3(0.08, 0.62, 1)
       break
     case 'sphere':
-      material.diffuseColor = new Color3(0.85, 0.3, 0.45)
+      material.diffuseColor = new Color3(1, 0.28, 0.42)
       break
     case 'cylinder':
-      material.diffuseColor = new Color3(0.36, 0.72, 0.42)
+      material.diffuseColor = new Color3(0.55, 0.9, 0.2)
       break
   }
 
-  material.specularColor = new Color3(0.55, 0.72, 0.88)
+  material.emissiveColor = material.diffuseColor.scale(0.16)
+  material.specularColor = new Color3(0.75, 0.85, 1)
   return material
+}
+
+const createGroundGrid = (scene: Scene): void => {
+  const lines: Vector3[][] = []
+  const firstGridLine = Math.ceil(-GROUND_HALF_SIZE)
+  const lastGridLine = Math.floor(GROUND_HALF_SIZE)
+
+  for (
+    let offset = firstGridLine;
+    offset <= lastGridLine;
+    offset += GROUND_GRID_STEP
+  ) {
+    lines.push([
+      new Vector3(offset, 0.01, -GROUND_HALF_SIZE),
+      new Vector3(offset, 0.01, GROUND_HALF_SIZE),
+    ])
+    lines.push([
+      new Vector3(-GROUND_HALF_SIZE, 0.01, offset),
+      new Vector3(GROUND_HALF_SIZE, 0.01, offset),
+    ])
+  }
+
+  const grid = MeshBuilder.CreateLineSystem('ground-grid', { lines }, scene)
+  grid.color = new Color3(0.2, 0.55, 0.72)
+  grid.alpha = 0.5
+  grid.isPickable = false
 }
 
 export interface GameSceneResult {
@@ -118,12 +148,12 @@ export const createGameScene = async (
       'main-camera',
       -Math.PI / 2,
       Math.PI / 2.55,
-      10,
+      8.5,
       new Vector3(0, 1.5, 0),
       scene,
     )
-    camera.lowerRadiusLimit = 5
-    camera.upperRadiusLimit = 16
+    camera.lowerRadiusLimit = 4
+    camera.upperRadiusLimit = 14
     camera.wheelDeltaPercentage = 0.01
     camera.attachControl(canvas, true)
 
@@ -144,15 +174,17 @@ export const createGameScene = async (
 
     const ground = MeshBuilder.CreateBox(
       'ground',
-      { width: 18, depth: 18, height: 0.2 },
+      { width: GROUND_SIZE, depth: GROUND_SIZE, height: 0.2 },
       scene,
     )
     ground.position.y = -0.1
 
     const groundMaterial = new StandardMaterial('ground-material', scene)
-    groundMaterial.diffuseColor = new Color3(0.035, 0.06, 0.11)
-    groundMaterial.specularColor = new Color3(0.05, 0.08, 0.12)
+    groundMaterial.diffuseColor = new Color3(0.12, 0.17, 0.23)
+    groundMaterial.emissiveColor = new Color3(0.02, 0.035, 0.05)
+    groundMaterial.specularColor = new Color3(0.03, 0.05, 0.07)
     ground.material = groundMaterial
+    createGroundGrid(scene)
 
     new PhysicsAggregate(
       ground,
