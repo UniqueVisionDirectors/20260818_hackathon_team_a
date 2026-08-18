@@ -29,6 +29,12 @@ export type {
   AuthState
 } from './auth.types';
 
+// ランキング関連の型
+export type {
+  RankingEntry,
+  CreateRankingRequest
+} from './ranking.types';
+
 // API関連の型
 export type {
   ApiResponse,
