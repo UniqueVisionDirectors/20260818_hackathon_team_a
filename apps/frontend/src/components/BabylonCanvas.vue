@@ -5,7 +5,7 @@
         ref="canvasRef"
         class="babylon-viewer__canvas"
         tabindex="0"
-        aria-label="Babylon.js 3Dデモ。ドラッグで回転し、ホイールで拡大縮小できます。"
+        aria-label="3D積み木ゲーム。W、A、S、Dで移動、QとEで回転、SpaceでDROPします。"
       >
         このブラウザは Canvas に対応していません。
       </canvas>
@@ -22,20 +22,73 @@
         />
         <span>{{ statusMessage }}</span>
       </div>
+
+      <div
+        v-if="status === 'ready' && !gameStarted"
+        class="babylon-viewer__start"
+      >
+        <button
+          class="babylon-viewer__start-button"
+          type="button"
+          @click="handleStartGame"
+        >
+          START
+        </button>
+      </div>
+
+      <div
+        v-if="status === 'ready'"
+        class="babylon-viewer__hud"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span>SCORE {{ gameState.score }}</span>
+        <span>MISS {{ gameState.misses }} / {{ gameState.maxMisses }}</span>
+        <span
+          v-if="gameState.phase === 'settling'"
+          class="babylon-viewer__settling"
+        >
+          安定を判定中…
+        </span>
+      </div>
+
+      <div
+        v-if="gameState.phase === 'game-over'"
+        class="babylon-viewer__game-over"
+        role="alert"
+      >
+        <p class="babylon-viewer__game-over-title">
+          GAME OVER
+        </p>
+        <p class="babylon-viewer__final-score">
+          FINAL SCORE {{ gameState.score }}
+        </p>
+        <button
+          class="babylon-viewer__start-button"
+          type="button"
+          @click="handleRetryGame"
+        >
+          RETRY
+        </button>
+      </div>
     </div>
 
     <figcaption class="babylon-viewer__caption">
       <span>{{ engineLabel }}</span>
-      <span>ドラッグ: 回転</span>
+      <span>W / A / S / D: 移動</span>
+      <span>Q / E: 回転</span>
+      <span>Space: DROP</span>
+      <span>ドラッグ: カメラ回転</span>
       <span>ホイール: ズーム</span>
     </figcaption>
   </figure>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue'
 import type { BabylonRenderer } from '@/renderer/BabylonRenderer'
-import type { RendererInfo } from '@/renderer/types'
+import { createInitialGameState } from '@/renderer/gameLogic'
+import type { GameState, RendererInfo } from '@/renderer/types'
 
 type ViewerStatus = 'idle' | 'initializing' | 'ready' | 'error'
 
@@ -47,6 +100,8 @@ const emit = defineEmits<{
 const canvasRef = shallowRef<HTMLCanvasElement | null>(null)
 const rendererRef = shallowRef<BabylonRenderer | null>(null)
 const status = ref<ViewerStatus>('idle')
+const gameStarted = ref(false)
+const gameState = ref<GameState>(createInitialGameState())
 const rendererInfo = shallowRef<RendererInfo | null>(null)
 let resizeObserver: ResizeObserver | null = null
 let unmounted = false
@@ -57,7 +112,7 @@ const requestedBackend = import.meta.env.VITE_BABYLON_RENDERER === 'webgpu'
 
 const statusMessage = computed(() => {
   if (status.value === 'error') {
-    return '3Dシーンを初期化できませんでした。WebGLの利用可否を確認してください。'
+    return '3Dゲームを初期化できませんでした。WebGLとWebAssemblyの利用可否を確認してください。'
   }
 
   return '3Dシーンを初期化しています…'
@@ -81,6 +136,43 @@ const handleVisibilityChange = (): void => {
   rendererRef.value?.setSuspended(document.hidden)
 }
 
+const handleStartGame = async (): Promise<void> => {
+  const renderer = rendererRef.value
+
+  if (!renderer) {
+    return
+  }
+
+  try {
+    renderer.startGame()
+    gameStarted.value = true
+    await nextTick()
+    canvasRef.value?.focus()
+  } catch (cause) {
+    const error = cause instanceof Error ? cause : new Error('Unknown game start error')
+    status.value = 'error'
+    emit('error', error)
+  }
+}
+
+const handleRetryGame = async (): Promise<void> => {
+  const renderer = rendererRef.value
+
+  if (!renderer) {
+    return
+  }
+
+  try {
+    renderer.restartGame()
+    await nextTick()
+    canvasRef.value?.focus()
+  } catch (cause) {
+    const error = cause instanceof Error ? cause : new Error('Unknown game retry error')
+    status.value = 'error'
+    emit('error', error)
+  }
+}
+
 onMounted(async () => {
   const canvas = canvasRef.value
 
@@ -97,7 +189,12 @@ onMounted(async () => {
       return
     }
 
-    const renderer = new BabylonRenderer(canvas, { backend: requestedBackend })
+    const renderer = new BabylonRenderer(canvas, {
+      backend: requestedBackend,
+      onGameStateChange: (state) => {
+        gameState.value = state
+      },
+    })
     rendererRef.value = renderer
     resizeObserver = new ResizeObserver(() => { renderer.resize(); })
     resizeObserver.observe(canvas)
@@ -180,6 +277,105 @@ onUnmounted(() => {
 
 .babylon-viewer__overlay--error {
   color: #ffd5d9;
+}
+
+.babylon-viewer__start {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 13, 29, 0.5);
+}
+
+.babylon-viewer__hud {
+  position: absolute;
+  z-index: 1;
+  top: 1rem;
+  right: 1rem;
+  left: 1rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  pointer-events: none;
+  color: #eef9ff;
+  font-size: clamp(0.9rem, 2vw, 1.15rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-shadow: 0 2px 8px #020914, 0 0 12px rgba(82, 213, 255, 0.45);
+}
+
+.babylon-viewer__settling {
+  position: absolute;
+  top: 2.2rem;
+  left: 50%;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid rgba(126, 229, 255, 0.35);
+  border-radius: 999px;
+  color: #bfefff;
+  background: rgba(4, 13, 29, 0.72);
+  font-size: 0.72rem;
+  transform: translateX(-50%);
+}
+
+.babylon-viewer__game-over {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 1rem;
+  padding: 2rem;
+  color: #eef9ff;
+  background: rgba(4, 13, 29, 0.78);
+  text-align: center;
+}
+
+.babylon-viewer__game-over-title,
+.babylon-viewer__final-score {
+  margin: 0;
+}
+
+.babylon-viewer__game-over-title {
+  color: #ff7585;
+  font-size: clamp(2rem, 6vw, 3.75rem);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-shadow: 0 0 1.5rem rgba(255, 72, 94, 0.42);
+}
+
+.babylon-viewer__final-score {
+  font-size: clamp(1rem, 3vw, 1.5rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.babylon-viewer__start-button {
+  min-width: 10rem;
+  min-height: 3.5rem;
+  padding: 0.8rem 1.6rem;
+  border: 1px solid rgba(126, 229, 255, 0.7);
+  border-radius: 0.8rem;
+  color: #03243a;
+  background: linear-gradient(145deg, #7ee5ff, #1ba4ea);
+  box-shadow: 0 0.8rem 2rem rgba(28, 156, 220, 0.32);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+
+.babylon-viewer__start-button:hover {
+  box-shadow: 0 1rem 2.4rem rgba(28, 156, 220, 0.48);
+  transform: translateY(-1px);
+}
+
+.babylon-viewer__start-button:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 3px;
+}
+
+.babylon-viewer__start-button:active {
+  transform: translateY(1px);
 }
 
 .babylon-viewer__status-mark {
