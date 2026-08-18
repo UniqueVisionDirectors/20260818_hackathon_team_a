@@ -49,6 +49,7 @@ Vite `8.1.5`、Hono `4.12.30`、PostgreSQL `18.4`です。
 Browser
   ├─ Vue 3: UI、ルーティング、Pinia
   └─ Babylon.js: Canvas、Scene、render loop
+  
        ↓ HTTP
 Hono + OpenAPI + Zod
   ├─ PostgreSQL: ユーザー、アイテム、画像メタデータ
